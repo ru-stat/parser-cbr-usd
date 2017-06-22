@@ -6,18 +6,18 @@ import requests
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-# TODO: separate scapper job and parser job or document.
-
 # FIXME: use Cookiecutter file structure with 'data/processed'
 #        CSV_FILENAME = Path(__file__).parent / "data" / "cbr_er.txt"
     
+# TODO: save csv with daily frequency "dfd.csv"
+                            
 # TODO: save as json from pandas
 
 CSV_FILENAME = "cbr_er.txt"
 ER_VARNAME = "FX_USDRUR_rub"
   
 class Filters:
-    """Functions to transform dirty values."""
+    """Functions to transform dirty values to text and float."""
     
     def as_date(string):
         try:
@@ -35,110 +35,150 @@ class Filters:
         except ValueError:
             raise ValueError("Error parsing value <{}>".format(string))
 
+
 # TODO - move asserts to tests           
 assert Filters.to_float("2{}153,0000".format(chr(160))) == 2153            
 assert Filters.as_date("30.01.2001") == datetime.date(2001, 1, 30)  
 
-               
-class Downloader:        
+
+class Source:
+    """URL definition for datasource"""
+    
+    DATE_FORMAT = '%d/%m/%Y'
+    TEMPLATE = 'http://www.cbr.ru/scripts/XML_dynamic.asp?date_req1={0}&date_req2={1}&VAL_NM_RQ=R01235'
+    
     def __init__(self, start=None, end=None):
-        s, e = self.make_date_range(start, end)
-        template = 'http://www.cbr.ru/scripts/XML_dynamic.asp?date_req1={0}&date_req2={1}&VAL_NM_RQ=R01235'
-        self.url = template.format(s, e)
+        start = self.get_start(start)
+        end = self.get_end(end)        
+        self.url = self.make_url(start, end)
+    
+    def make_url(self, start, end):
+        assert isinstance(start, datetime.date)
+        assert isinstance(end, datetime.date)
+        s = start.strftime(self.DATE_FORMAT)
+        e = end.strftime(self.DATE_FORMAT)
+        return self.TEMPLATE.format(s, e)
+    
+    def get_url(self):
+        return self.url 
         
     @staticmethod 
-    def make_date_range(start, end):
-        """Return data range from 01/07/1992 to today or shorter"""
-        DATE_FORMAT = '%d/%m/%Y'
+    def get_start(start: str):
         if not start:        
            start = datetime.date(1992, 7, 1)
+        else:
+           start = pd.to_datetime(start).date()
+        return start
+    
+    @staticmethod
+    def get_end(end: str):
         if not end:    
             end = datetime.datetime.today()     
-        return start.strftime(DATE_FORMAT), end.strftime(DATE_FORMAT)
+        else:
+            end = pd.to_datetime(end).date()
+        return end
+
+# TODO - move asserts to tests           
+assert Source().get_url().startswith('http://www.cbr.ru/scripts/XML_dynamic.asp')
+s = "2001-03-15"
+e = "2001-03-30"
+assert Source.get_start(s) == datetime.date(2001, 3, 15)
+assert Source.get_start(e) == datetime.date(2001, 3, 30)
+assert Source(s,e).url == "http://www.cbr.ru/scripts/XML_dynamic.asp?date_req1=15/03/2001&date_req2=30/03/2001&VAL_NM_RQ=R01235"
+
+             
+class Downloader:   
+
+    # FIXME: file locations 
+    XML_CACHE_FILE = "er_xml.txt"
     
-    def get_xml_as_text(self):
-        return requests.get(self.url).text
+    def __init__(self, start=None, end=None):
+        self.url = Source(start, end).get_url()     
     
-    def iter(self):
+    def get_xml(self):
         r = requests.get(self.url)
-        root = ET.fromstring(r.text)
+        return r.text
+    
+    def save_xml(self):    
+        text = self.get_xml()
+        Path(self.XML_CACHE_FILE).write_text(text)
+
+    def get_xml_cached(self):    
+        return Path(self.XML_CACHE_FILE).read_text()
+    
+assert Downloader().get_xml_cached().startswith('<?xml version="1.0" encoding="windows-1251"')    
+    
+    
+class Parser:
+    
+    def __init__(self, xml_text):
+        """Accept xml_text and create pd.Series"""
+        gen = self.xml_text_to_stream(xml_text)
+        d = {pd.to_datetime(date): price for date, price in gen}
+        ts = pd.Series(d, name = ER_VARNAME)
+        self.ts = self.transform(ts)
+
+    @staticmethod
+    def xml_text_to_stream(text):        
+        root = ET.fromstring(text)
         for child in root:
             date = Filters.as_date(child.attrib['Date'])
             value = Filters.to_float(child[1].text)
-            yield date, value          
-
-
-assert Downloader.make_date_range(None, None)[0] == '01/07/1992'
-
-
-
-# TODO - move asserts to tests   
-
-# def test_make_url():    
-#    start = datetime.date(2001,3,2)
-#    end = datetime.date(2001,3,14)   
-#    target_url = 'http://www.cbr.ru/scripts/XML_dynamic.asp?date_req1=02/03/2001&date_req2=14/03/2001&VAL_NM_RQ=R01235'
-#    assert target_url ==  make_url(start, end)
-   
-def download_er():
-    gen = Downloader().iter()
-    d = {pd.to_datetime(date): price for date, price in gen}
-    ts = pd.Series(d, name = ER_VARNAME)
-    #divide values before 1997-12-30 by 1000
-    ix = ts.index <= "1997-12-30"
-    ts.loc[ix] = ts[ix] / 1000
-    return ts.round(4)
-
-def save_to_csv(ts):
-    ts.to_csv(CSV_FILENAME, header = True)
-
-def get_saved_er(path = CSV_FILENAME):
-    df = pd.read_csv(path, index_col = 0) 
-    df.index = pd.to_datetime(df.index)
-    return df[df.columns[0]].round(4)
-    
-
-# TODO - move asserts to tests   
-   
-#def update():
-#    er = download_er()
-#    assert er['1997-12-27'] == 5.95800 
-#    save_to_csv(er)    
-#    df = get_saved_er()
-#    ts = df[df.columns[0]]
-#    # note: had problems with rounding, er and ts are at this point rounded to 4 digits   
-#    assert er.equals(ts)
-#    return ts   
-    
-
-class Ruble():    
-    
-    def __init__(self):                
-        try:
-            self.ts = get_saved_er()
-        except FileNotFoundError:
-            print("Cannot load from local file")
-            self.update()
-      
-    def update(self):
-        print("Updating from web...")
-        self.ts = download_er()
-        save_to_csv(self.ts)    
-        return self
+            yield date, value   
+        
+    @staticmethod    
+    def transform(ts):
+        #divide values before 1997-12-30 by 1000
+        ix = ts.index <= "1997-12-30"
+        ts.loc[ix] = ts[ix] / 1000
+        return ts.round(4)        
         
     def get(self):
         return self.ts    
     
-# may also cache xml to local fiel, if necessary to debug XML parser ----------
 
-# FIXME: is cache necessary?
-XML_CACHE_FILE = "er_xml.txt"
-
-def save_xml_as_local_file(path = XML_CACHE_FILE):    
-    text = Downloader().get_xml_as_text()
-    Path(path).write_text(text)
-    return path    
+class LocalData:     
+    # FIXME: convert to data/processed reader/dumper
     
+    def dump(ts):
+        ts.to_csv(CSV_FILENAME, header = True)
+        print ("Saved to", CSV_FILENAME)
+    
+    def read(path = CSV_FILENAME):
+        df = pd.read_csv(path, index_col = 0) 
+        df.index = pd.to_datetime(df.index)
+        return df[df.columns[0]].round(4)
+        
+    
+class Ruble():    
+    
+    def __init__(self):                
+        """Read from local data copy or update from web"""
+        try:
+            self.ts = LocalData.read()
+        except FileNotFoundError:
+            print("Local data file not found")
+            self.update()
+      
+    def update(self):
+        print("Updating from web...")
+        # FIXME: always updates full dataset, its expensive 
+        #        may read latest values and concat
+        Downloader().save_xml()
+        xml_text = Downloader().get_xml_cached()
+        self.ts = Parser(xml_text).get()
+        LocalData.dump(self.ts)          
+        return self
+        
+    def get(self):
+        return self.ts
+
+    def save_df(self):
+        # FIXME: write to data/processed
+        # TODO: write in json        
+        pass
+    
+   
 if __name__ == "__main__":
     er = Ruble().get()
     assert er['2017-06-10'] == 57.0020
