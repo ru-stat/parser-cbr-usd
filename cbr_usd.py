@@ -36,11 +36,6 @@ class Filters:
             raise ValueError("Error parsing value <{}>".format(string))
 
 
-# TODO - move asserts to tests           
-assert Filters.to_float("2{}153,0000".format(chr(160))) == 2153            
-assert Filters.as_date("30.01.2001") == datetime.date(2001, 1, 30)  
-
-
 class Source:
     """URL definition for datasource"""
     
@@ -76,15 +71,7 @@ class Source:
             end = datetime.datetime.today()     
         else:
             end = pd.to_datetime(end).date()
-        return end
-
-# TODO - move asserts to tests           
-assert Source().get_url().startswith('http://www.cbr.ru/scripts/XML_dynamic.asp')
-s = "2001-03-15"
-e = "2001-03-30"
-assert Source.get_start(s) == datetime.date(2001, 3, 15)
-assert Source.get_start(e) == datetime.date(2001, 3, 30)
-assert Source(s,e).url == "http://www.cbr.ru/scripts/XML_dynamic.asp?date_req1=15/03/2001&date_req2=30/03/2001&VAL_NM_RQ=R01235"
+        return end        
 
              
 class Downloader:   
@@ -105,8 +92,6 @@ class Downloader:
 
     def get_xml_cached(self):    
         return Path(self.XML_CACHE_FILE).read_text()
-    
-assert Downloader().get_xml_cached().startswith('<?xml version="1.0" encoding="windows-1251"')    
     
     
 class Parser:
@@ -181,7 +166,5 @@ class Ruble():
    
 if __name__ == "__main__":
     er = Ruble().get()
-    assert er['2017-06-10'] == 57.0020
-    assert er['1997-12-27'] == 5.95800
     print(er.tail())
     Ruble().update()
