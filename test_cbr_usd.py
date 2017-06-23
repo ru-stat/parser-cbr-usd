@@ -23,6 +23,7 @@ class TestFilters(object):
 class TestSource(object):
     DATE_1 = "2001-03-15"
     DATE_2 = "2001-03-30"
+    DEFAULT_START_DATE = "1992-01-07"
 
     BASE_URL = "http://www.cbr.ru/scripts/XML_dynamic.asp"
 
@@ -32,6 +33,12 @@ class TestSource(object):
     def test_get_start(self):
         assert Source.get_start(self.DATE_1) == datetime.date(2001, 3, 15)
         assert Source.get_start(self.DATE_2) == datetime.date(2001, 3, 30)
+
+    def test_get_start_on_empty_input(self):
+        default_value = datetime.date(1992, 7, 1)
+        assert Source.get_start("") == default_value
+        # NOTE: is this the expected behaviour on None input?
+        assert Source.get_start(None) == default_value
 
     def test_source_url(self):
         url = self.BASE_URL + "?date_req1={}&date_req2={}&VAL_NM_RQ=R01235"
