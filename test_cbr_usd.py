@@ -1,14 +1,23 @@
 import datetime
+import pytest
 from cbr_usd import Filters, Source, Downloader, Ruble
 
 
 class TestFilters(object):
 
-    def test_to_float(self):
+    def test_to_float_valid_input(self):
         assert Filters.to_float("2{}153,0000".format(chr(160))) == 2153
 
-    def test_as_date(self):
+    def test_to_float_on_invalid_input(self):
+        with pytest.raises(ValueError):
+            Filters.to_float("2,000,000.00")
+
+    def test_as_date_on_valid_input(self):
         assert Filters.as_date("30.01.2001") == datetime.date(2001, 1, 30)
+
+    def test_as_date_on_invalid_input(self):
+        with pytest.raises(ValueError):
+            Filters.as_date("30/01/2001")
 
 
 class TestSource(object):
